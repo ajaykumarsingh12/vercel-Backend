@@ -6,10 +6,6 @@ const dotenv = require("dotenv");
 dotenv.config();
 
 const app = express();
-
-// ============================================
-// MONGODB CONNECTION (Serverless Optimized)
-// ============================================
 let isConnected = false;
 
 const connectDB = async () => {
@@ -45,20 +41,13 @@ app.use(async (req, res, next) => {
   }
 });
 
-// ============================================
-// MIDDLEWARE
-// ============================================
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-
-// ============================================
-// ROOT ROUTE - Welcome Page
-// ============================================
 app.get("/", (req, res) => {
   res.json({
     success: true,
-    message: "🎉 BookMyHall API is running!",
+    message: "BookMyHall API is running!",
     version: "1.0.0",
     endpoints: {
       health: "/api/health",
@@ -99,9 +88,6 @@ app.get("/api/health", (req, res) => {
   });
 });
 
-// ============================================
-// API ROUTES
-// ============================================
 app.use("/api/auth", require("./routes/auth"));
 app.use("/api/users", require("./routes/users"));
 app.use("/api/halls", require("./routes/halls"));
@@ -113,9 +99,6 @@ app.use("/api/notifications", require("./routes/notifications"));
 app.use("/api/hallalloted", require("./routes/hallAlloted"));
 app.use("/api/owner-revenue", require("./routes/ownerRevenue"));
 
-// ============================================
-// ERROR HANDLING
-// ============================================
 
 // 404 handler - Route not found
 app.use((req, res) => {
