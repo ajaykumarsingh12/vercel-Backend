@@ -1,43 +1,14 @@
 const express = require('express');
 const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
 const User = require('../models/User');
 const { auth } = require('../middleware/auth');
+const { profileStorage, cloudinary } = require('../config/cloudinary');
 
 const router = express.Router();
 
-// Configure multer for file uploads
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    const uploadDir = 'uploads/profiles';
-
-    // Create directory if it doesn't exist
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
-
-    cb(null, uploadDir);
-  },
-  filename: function (req, file, cb) {
-    // Generate unique filename
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, 'profile-' + uniqueSuffix + path.extname(file.originalname));
-  }
-});
-
-const fileFilter = (req, file, cb) => {
-  // Check file type
-  if (file.mimetype.startsWith('image/')) {
-    cb(null, true);
-  } else {
-    cb(new Error('Only image files are allowed!'), false);
-  }
-};
-
+// Configure multer with Cloudinary storage
 const upload = multer({
-  storage: storage,
-  fileFilter: fileFilter,
+  storage: profileStorage,
   limits: {
     fileSize: 5 * 1024 * 1024, // 5MB limit
   }
@@ -102,16 +73,21 @@ router.put('/profile', auth, upload.single('profileImage'), async (req, res) => 
     let profileImagePath = user.profileImage;
 
     if (req.file) {
-      // Delete old profile image if it exists
-      if (user.profileImage && !user.profileImage.startsWith('http')) {
-        const oldImagePath = path.join(__dirname, '..', user.profileImage);
-        if (fs.existsSync(oldImagePath)) {
-          fs.unlinkSync(oldImagePath);
+      // Delete old profile image from Cloudinary if it exists
+      if (user.profileImage && user.profileImage.includes('cloudinary.com')) {
+        try {
+          // Extract public_id from Cloudinary URL
+          const urlParts = user.profileImage.split('/');
+          const filename = urlParts[urlParts.length - 1];
+          const publicId = `hall-booking/profiles/${filename.split('.')[0]}`;
+          await cloudinary.uploader.destroy(publicId);
+        } catch (error) {
+          console.error('Error deleting old image from Cloudinary:', error);
         }
       }
 
-      // Set new profile image path
-      profileImagePath = req.file.path.replace(/\\/g, '/'); // Normalize path for Windows
+      // Set new profile image path (Cloudinary returns full URL)
+      profileImagePath = req.file.path;
     }
 
     // Update user fields
@@ -148,12 +124,7 @@ router.put('/profile', auth, upload.single('profileImage'), async (req, res) => 
   } catch (error) {
     console.error(error);
 
-    // Delete uploaded file if there was an error
-    if (req.file) {
-      fs.unlink(req.file.path, (err) => {
-        if (err) console.error('Error deleting uploaded file:', err);
-      });
-    }
+    // Note: Cloudinary automatically handles cleanup of uploaded files on error
 
     if (error.name === 'ValidationError') {
       const errors = Object.values(error.errors).map(err => err.message);
@@ -185,11 +156,16 @@ router.delete('/profile/image', auth, async (req, res) => {
       });
     }
 
-    // Delete profile image file if it exists
-    if (user.profileImage && !user.profileImage.startsWith('http')) {
-      const imagePath = path.join(__dirname, '..', user.profileImage);
-      if (fs.existsSync(imagePath)) {
-        fs.unlinkSync(imagePath);
+    // Delete profile image from Cloudinary if it exists
+    if (user.profileImage && user.profileImage.includes('cloudinary.com')) {
+      try {
+        // Extract public_id from Cloudinary URL
+        const urlParts = user.profileImage.split('/');
+        const filename = urlParts[urlParts.length - 1];
+        const publicId = `hall-booking/profiles/${filename.split('.')[0]}`;
+        await cloudinary.uploader.destroy(publicId);
+      } catch (error) {
+        console.error('Error deleting image from Cloudinary:', error);
       }
     }
 

@@ -52,4 +52,26 @@ const bookingSchema = new mongoose.Schema(
   }
 );
 
+
+// Index for user's bookings
+bookingSchema.index({ user: 1, createdAt: -1 });
+
+// Index for hall's bookings (hall owner dashboard)
+bookingSchema.index({ hall: 1, bookingDate: -1 });
+
+// Index for status queries
+bookingSchema.index({ status: 1 });
+
+// Index for payment status
+bookingSchema.index({ paymentStatus: 1 });
+
+// Compound index for availability checks (prevents double booking)
+bookingSchema.index({ hall: 1, bookingDate: 1, status: 1 });
+
+// Index for date range queries
+bookingSchema.index({ bookingDate: 1 });
+
+// Compound index for hall owner to see bookings
+bookingSchema.index({ hall: 1, status: 1, bookingDate: -1 });
+
 module.exports = mongoose.model("Booking", bookingSchema);

@@ -48,6 +48,10 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    isBlocked: {
+      type: Boolean,
+      default: false,
+    },
     favorites: [
       {
         type: mongoose.Schema.Types.ObjectId,
@@ -100,5 +104,22 @@ userSchema.pre("save", async function (next) {
 userSchema.methods.comparePassword = async function (candidatePassword) {
   return await bcrypt.compare(candidatePassword, this.password);
 };
+
+
+// Index for login queries (email lookup is very frequent)
+userSchema.index({ email: 1 });
+
+// Index for role-based queries (admin dashboard, hall owner queries)
+userSchema.index({ role: 1 });
+
+// Index for blocked user checks
+userSchema.index({ isBlocked: 1 });
+
+// Compound index for OAuth lookups
+userSchema.index({ googleId: 1 }, { sparse: true });
+userSchema.index({ appleId: 1 }, { sparse: true });
+
+// Index for favorites array queries
+userSchema.index({ favorites: 1 });
 
 module.exports = mongoose.model("User", userSchema);

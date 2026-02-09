@@ -33,7 +33,6 @@ router.post(
   ],
   async (req, res) => {
     try {
-      // 1. Check for validation errors
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
         return res.status(400).json({
@@ -45,7 +44,6 @@ router.post(
 
       const { name, email, password, role, phone } = req.body;
 
-      // 2. Check for existing user
       const existingUser = await User.findOne({ email });
       if (existingUser) {
         return res
@@ -53,7 +51,6 @@ router.post(
           .json({ success: false, message: "Email already registered" });
       }
 
-      // 3. Create User (Ensure your User model hashes the password via pre-save hook)
       const user = new User({
         name,
         email,
@@ -64,7 +61,6 @@ router.post(
 
       await user.save();
 
-      // 4. Generate Token & Respond
       const token = generateToken(user._id);
 
       res.status(201).json({
@@ -116,13 +112,19 @@ router.post(
 
       const { email, password } = req.body;
 
-      // Find user
       const user = await User.findOne({ email });
       if (!user) {
         return res.status(401).json({ message: "Invalid credentials" });
       }
 
-      // Check password
+      // Check if user is blocked
+      if (user.isBlocked) {
+        return res.status(403).json({ 
+          message: "Your account has been blocked. Please contact support for assistance.",
+          isBlocked: true 
+        });
+      }
+
       const isMatch = await user.comparePassword(password);
       if (!isMatch) {
         return res.status(401).json({ message: "Invalid credentials" });
@@ -159,6 +161,8 @@ router.post(
   },
 );
 
+// @route GET /api/auth/me
+// @desc Get current user
 // @access Private
 router.get("/me", auth, async (req, res) => {
   try {
@@ -251,14 +255,10 @@ router.post(
       }
 
       const { email } = req.body;
-      const normalizedEmail = email.toLowerCase().trim();
 
-      // Escape special regex characters to prevent injection
-      const escapedEmail = normalizedEmail.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
-      // Check if user exists with case-insensitive search
-      const user = await User.findOne({
-        email: { $regex: new RegExp(`^${escapedEmail}$`, 'i') }
+      // Simple case-insensitive email check
+      const user = await User.findOne({ 
+        email: email.toLowerCase().trim() 
       });
 
       res.json({
@@ -301,7 +301,6 @@ router.post(
 
       const { email, newPassword } = req.body;
 
-      // Find user by email
       const user = await User.findOne({ email });
       if (!user) {
         return res.status(404).json({
@@ -310,7 +309,6 @@ router.post(
         });
       }
 
-      // Update password (will be hashed by pre-save hook)
       user.password = newPassword;
       await user.save();
 
@@ -328,173 +326,64 @@ router.post(
   }
 );
 
-// @route POST /api/auth/google
-// @desc Google OAuth login/register
+// @route POST /api/auth/request-unblock
+// @desc Request account unblock
 // @access Public
-router.post("/google", async (req, res) => {
+router.post("/request-unblock", async (req, res) => {
   try {
-    const { credential, clientId } = req.body;
+    const { email } = req.body;
 
-    if (!credential) {
-      return res.status(400).json({
-        success: false,
-        message: "Google credential is required",
-      });
+    if (!email) {
+      return res.status(400).json({ message: "Email is required" });
     }
 
-    // Decode the JWT token from Google
-    const base64Url = credential.split('.')[1];
-    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-    const jsonPayload = decodeURIComponent(atob(base64).split('').map(function (c) {
-      return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
-    }).join(''));
+    const user = await User.findOne({ email });
 
-    const googleUser = JSON.parse(jsonPayload);
-
-    // Check if user exists
-    let user = await User.findOne({ email: googleUser.email });
-
-    if (user) {
-      // Update Google ID if not set
-      if (!user.googleId) {
-        user.googleId = googleUser.sub;
-        user.authProvider = "google";
-        user.isVerified = true;
-        if (googleUser.picture) user.avatar = googleUser.picture;
-        await user.save();
-      }
-    } else {
-      // Create new user
-      user = new User({
-        name: googleUser.name,
-        email: googleUser.email,
-        googleId: googleUser.sub,
-        avatar: googleUser.picture,
-        authProvider: "google",
-        isVerified: true,
-        role: "user",
-      });
-      await user.save();
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
     }
 
-    const token = generateToken(user._id);
+    if (!user.isBlocked) {
+      return res.status(400).json({ message: "Account is not blocked" });
+    }
 
-    res.json({
-      success: true,
-      token,
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        phone: user.phone,
-        address: user.address,
-        businessName: user.businessName,
-        profileImage: user.profileImage,
-        bio: user.bio,
-        dateOfBirth: user.dateOfBirth,
-        avatar: user.avatar,
-        favorites: user.favorites || [],
-      },
+    // Find all admin users
+    const admins = await User.find({ role: "admin" });
+
+    if (admins.length === 0) {
+      return res.status(500).json({ message: "No admin found to process request" });
+    }
+
+    // Create notification for each admin
+    const Notification = require("../models/Notification");
+    
+    const notificationPromises = admins.map(admin => 
+      Notification.create({
+        user: admin._id,
+        type: "unblock_request",
+        message: `${user.name} (${user.role === 'hall_owner' ? 'Hall Owner' : 'User'}) has requested to unblock their account`,
+        relatedId: user._id,
+        requestData: {
+          userEmail: email,
+          userName: user.name,
+          userRole: user.role,
+          requestedAt: new Date(),
+          status: "pending"
+        }
+      })
+    );
+
+    await Promise.all(notificationPromises);
+
+    console.log(`Unblock request created for: ${email} (${user.name}) - Role: ${user.role}`);
+
+    res.json({ 
+      message: "Unblock request sent successfully. Admin will review your request.",
+      success: true 
     });
   } catch (error) {
-      console.error(error);
-    res.status(500).json({
-      success: false,
-      message: "Google authentication failed",
-    });
-  }
-});
-
-// @route POST /api/auth/apple
-// @desc Apple OAuth login/register
-// @access Public
-router.post("/apple", async (req, res) => {
-  try {
-    const { identityToken, user: appleUser } = req.body;
-
-    if (!identityToken) {
-      return res.status(400).json({
-        success: false,
-        message: "Apple identity token is required",
-      });
-    }
-
-    // Decode the JWT token from Apple
-    const base64Url = identityToken.split('.')[1];
-    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-    const jsonPayload = decodeURIComponent(atob(base64).split('').map(function (c) {
-      return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
-    }).join(''));
-
-    const applePayload = JSON.parse(jsonPayload);
-
-    // Extract email and Apple ID
-    const email = applePayload.email;
-    const appleId = applePayload.sub;
-
-    if (!email || !appleId) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid Apple credentials",
-      });
-    }
-
-    // Check if user exists
-    let user = await User.findOne({ email });
-
-    if (user) {
-      // Update Apple ID if not set
-      if (!user.appleId) {
-        user.appleId = appleId;
-        user.authProvider = "apple";
-        user.isVerified = true;
-        await user.save();
-      }
-    } else {
-      // Create new user
-      // Apple provides name only on first sign-in
-      const userName = appleUser?.name
-        ? `${appleUser.name.firstName || ''} ${appleUser.name.lastName || ''}`.trim()
-        : email.split('@')[0];
-
-      user = new User({
-        name: userName,
-        email: email,
-        appleId: appleId,
-        authProvider: "apple",
-        isVerified: true,
-        role: "user",
-      });
-      await user.save();
-    }
-
-    const token = generateToken(user._id);
-
-    res.json({
-      success: true,
-      token,
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        phone: user.phone,
-        address: user.address,
-        businessName: user.businessName,
-        profileImage: user.profileImage,
-        bio: user.bio,
-        dateOfBirth: user.dateOfBirth,
-        avatar: user.avatar,
-        favorites: user.favorites || [],
-      },
-    });
-  } catch (error) {
-      console.error(error);
-    res.status(500).json({
-      success: false,
-      message: "Apple authentication failed",
-    });
+    console.error(error);
+    res.status(500).json({ message: "Server error" });
   }
 });
 

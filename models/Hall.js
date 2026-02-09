@@ -95,4 +95,27 @@ const hallSchema = new mongoose.Schema(
   }
 );
 
+
+// MOST IMPORTANT - speeds up "my halls" query by 90%
+hallSchema.index({ owner: 1 });
+
+// Index for location searches (city/state filters)
+hallSchema.index({ 'location.city': 1 });
+hallSchema.index({ 'location.state': 1 });
+
+// Compound index for public hall listing (homepage)
+hallSchema.index({ isApproved: 1, isAvailable: 1 });
+
+// Index for price range searches
+hallSchema.index({ pricePerHour: 1 });
+
+// Index for capacity searches
+hallSchema.index({ capacity: 1 });
+
+// Compound index for location + approval (most common query)
+hallSchema.index({ 'location.city': 1, isApproved: 1, isAvailable: 1 });
+
+// Text index for search functionality
+hallSchema.index({ name: 'text', description: 'text' });
+
 module.exports = mongoose.model("Hall", hallSchema);

@@ -33,13 +33,15 @@ router.get("/", auth, async (req, res) => {
       filter.hall = hall;
     }
 
+    // ✅ OPTIMIZED: Use lean() for read-only queries
     const revenues = await OwnerRevenue.find(filter)
       .populate("hall", "name location")
       .populate("customer", "name email")
       .populate("booking", "bookingDate specialRequests")
       .sort({ createdAt: -1 })
       .limit(limit * 1)
-      .skip((page - 1) * limit);
+      .skip((page - 1) * limit)
+      .lean();
 
     const total = await OwnerRevenue.countDocuments(filter);
 
@@ -50,7 +52,7 @@ router.get("/", auth, async (req, res) => {
       total,
     });
   } catch (error) {
-      console.error(error);
+    console.error(error);
     res.status(500).json({ message: "Server error" });
   }
 });

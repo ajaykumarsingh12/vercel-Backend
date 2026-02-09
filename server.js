@@ -12,8 +12,7 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Serve static files from uploads directory
-app.use("/uploads", express.static("uploads"));
+// Note: Static file serving removed - using Cloudinary for image storage
 
 // Health check (before MongoDB check)
 app.get("/api/health", (req, res) => {

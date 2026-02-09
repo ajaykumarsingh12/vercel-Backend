@@ -23,6 +23,14 @@ const auth = async (req, res, next) => {
       return res.status(401).json({ message: "Token is not valid" });
     }
 
+    // Check if user is blocked
+    if (user.isBlocked) {
+      return res.status(403).json({ 
+        message: "Your account has been blocked. Please contact support for assistance.",
+        isBlocked: true 
+      });
+    }
+
     req.user = user;
     next();
   } catch (error) {

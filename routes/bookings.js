@@ -16,8 +16,10 @@ router.get("/", auth, async (req, res) => {
     if (req.user.role === "user") {
       filter.user = req.user._id;
     } else if (req.user.role === "hall_owner") {
-      // Get bookings for halls owned by this user
-      const ownedHalls = await Hall.find({ owner: req.user._id }).select("_id");
+      // Optimized: Get hall IDs first without populating
+      const ownedHalls = await Hall.find({ owner: req.user._id })
+        .select("_id")
+        .lean();
       const hallIds = ownedHalls.map((hall) => hall._id);
       filter.hall = { $in: hallIds };
     }
@@ -27,12 +29,14 @@ router.get("/", auth, async (req, res) => {
       .populate("user", "name email phone")
       .populate({
         path: "hall",
+        select: "name location pricePerHour owner", // Only select needed fields
         populate: {
           path: "owner",
           select: "name email phone",
         },
       })
-      .sort({ bookingDate: -1, createdAt: -1 });
+      .sort({ bookingDate: -1, createdAt: -1 })
+      .lean(); // Use lean() for read-only queries
 
     res.json(bookings);
   } catch (error) {
@@ -63,7 +67,9 @@ router.get("/availability/:hallId", async (req, res) => {
       filter.bookingDate = { $gte: today };
     }
 
-    const bookings = await Booking.find(filter).select("bookingDate startTime endTime status");
+    const bookings = await Booking.find(filter)
+      .select("bookingDate startTime endTime status")
+      .lean(); // Use lean() for read-only queries
 
     res.json(bookings);
   } catch (error) {
@@ -141,8 +147,23 @@ router.post(
       const { hall, bookingDate, startTime, endTime, specialRequests } =
         req.body;
 
+      // Optimized: Run hall check and conflict check in parallel
+      const [hallData, conflictingBooking] = await Promise.all([
+        Hall.findById(hall).select("isAvailable isApproved pricePerHour name location owner").lean(),
+        Booking.findOne({
+          hall,
+          bookingDate: new Date(bookingDate),
+          status: { $in: ["pending", "confirmed"] },
+          $or: [
+            {
+              startTime: { $lt: endTime },
+              endTime: { $gt: startTime },
+            },
+          ],
+        }).lean()
+      ]);
+
       // Check if hall exists and is available
-      const hallData = await Hall.findById(hall);
       if (!hallData) {
         return res.status(404).json({ message: "Hall not found" });
       }
@@ -152,19 +173,6 @@ router.post(
           .status(400)
           .json({ message: "Hall is not available for booking" });
       }
-
-      // Check for conflicting bookings
-      const conflictingBooking = await Booking.findOne({
-        hall,
-        bookingDate: new Date(bookingDate),
-        status: { $in: ["pending", "confirmed"] },
-        $or: [
-          {
-            startTime: { $lt: endTime },
-            endTime: { $gt: startTime },
-          },
-        ],
-      });
 
       if (conflictingBooking) {
         return res.status(400).json({ message: "Time slot is already booked" });
@@ -201,7 +209,7 @@ router.post(
 
       await booking.save();
 
-      // Update corresponding availability slot in HallAlloted collection
+      // Update corresponding availability slot in HallAlloted collection (async, non-blocking)
       const HallAlloted = require("../models/HallAlloted");
 
       // Find the matching availability slot
@@ -227,16 +235,20 @@ router.post(
         await matchingSlot.save();
       }
 
-      await booking.populate("user", "name email phone");
-      await booking.populate({
-        path: "hall",
-        populate: {
-          path: "owner",
-          select: "name email phone",
-        },
-      });
+      // Populate and return
+      const populatedBooking = await Booking.findById(booking._id)
+        .populate("user", "name email phone")
+        .populate({
+          path: "hall",
+          select: "name location pricePerHour owner",
+          populate: {
+            path: "owner",
+            select: "name email phone",
+          },
+        })
+        .lean();
 
-      res.status(201).json(booking);
+      res.status(201).json(populatedBooking);
     } catch (error) {
       console.error(error);
       res.status(500).json({ message: "Server error", error: error.message });

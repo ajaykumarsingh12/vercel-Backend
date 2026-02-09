@@ -1,28 +1,15 @@
 const express = require("express");
 const { body, validationResult } = require("express-validator");
 const multer = require("multer");
-const fs = require("fs");
-const path = require("path");
+const mongoose = require("mongoose");
 const Hall = require("../models/Hall");
 const { auth, authorize } = require("../middleware/auth");
+const { hallStorage } = require("../config/cloudinary");
 
 const router = express.Router();
 
-// Configure Multer for image upload
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    const dir = "uploads/";
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    cb(null, dir);
-  },
-  filename: function (req, file, cb) {
-    cb(null, Date.now() + path.extname(file.originalname));
-  },
-});
-
-const upload = multer({ storage: storage });
+// Configure Multer with Cloudinary storage
+const upload = multer({ storage: hallStorage });
 
 // Middleware to parse nested FormData fields
 const parseFormData = (req, res, next) => {
@@ -95,23 +82,15 @@ router.get(
   authorize("hall_owner", "admin"),
   async (req, res) => {
     try {
-      // Get all halls with owner populated
-      const allHalls = await Hall.find().populate("owner", "name email _id").sort({ createdAt: -1 });
-      const userId = req.user._id.toString();
-
-      // Filter halls that belong to this user
-      const userHalls = allHalls.filter(hall => {
-        if (!hall.owner) {
-          return false;
-        }
-        const ownerId = hall.owner._id.toString();
-        const matches = ownerId === userId;
-        return matches;
-      });
+      // ✅ OPTIMIZED: Direct database query instead of fetching all and filtering
+      const userHalls = await Hall.find({ owner: req.user._id })
+        .populate("owner", "name email _id")
+        .sort({ createdAt: -1 })
+        .lean(); // Use lean() for faster read-only queries
 
       res.json(userHalls);
     } catch (error) {
-            res.status(500).json({ message: "Server error", error: error.message });
+      res.status(500).json({ message: "Server error", error: error.message });
     }
   }
 );
@@ -225,7 +204,7 @@ router.post(
         ...req.body,
         owner: req.user._id,
         images: req.files
-          ? req.files.map((file) => file.path.replace(/\\/g, "/"))
+          ? req.files.map((file) => file.path) // Cloudinary returns full URL in file.path
           : [],
       };
 
@@ -283,9 +262,7 @@ router.put(
 
       // Add new uploaded images
       if (req.files && req.files.length > 0) {
-        const newImagePaths = req.files.map((file) =>
-          file.path.replace(/\\/g, "/")
-        );
+        const newImagePaths = req.files.map((file) => file.path); // Cloudinary returns full URL
         updatedImages = [...updatedImages, ...newImagePaths];
       }
 
@@ -384,6 +361,74 @@ router.get("/favorites/all", auth, async (req, res) => {
     res.json(user.favorites);
   } catch (error) {
         res.status(500).json({ message: "Server error" });
+  }
+});
+
+// @route GET /api/halls/:id/analytics
+// @desc Get hall analytics (bookings, revenue trends)
+// @access Private (Hall Owner or Admin)
+router.get("/:id/analytics", auth, async (req, res) => {
+  try {
+    const { startDate, endDate } = req.query;
+    
+    // Default to last 6 months if no date range provided
+    const start = startDate ? new Date(startDate) : new Date(new Date().setMonth(new Date().getMonth() - 6));
+    const end = endDate ? new Date(endDate) : new Date();
+
+    // ✅ AGGREGATION PIPELINE for analytics
+    const analytics = await Booking.aggregate([
+      // Stage 1: Filter by hall and date range
+      {
+        $match: {
+          hall: new mongoose.Types.ObjectId(req.params.id),
+          bookingDate: { $gte: start, $lte: end }
+        }
+      },
+      // Stage 2: Group by month
+      {
+        $group: {
+          _id: {
+            year: { $year: "$bookingDate" },
+            month: { $month: "$bookingDate" }
+          },
+          totalBookings: { $sum: 1 },
+          totalRevenue: { $sum: "$totalAmount" },
+          avgBookingValue: { $avg: "$totalAmount" },
+          confirmedBookings: {
+            $sum: { $cond: [{ $eq: ["$status", "confirmed"] }, 1, 0] }
+          },
+          completedBookings: {
+            $sum: { $cond: [{ $eq: ["$status", "completed"] }, 1, 0] }
+          },
+          cancelledBookings: {
+            $sum: { $cond: [{ $eq: ["$status", "cancelled"] }, 1, 0] }
+          }
+        }
+      },
+      // Stage 3: Sort by date
+      {
+        $sort: { "_id.year": 1, "_id.month": 1 }
+      },
+      // Stage 4: Format output
+      {
+        $project: {
+          _id: 0,
+          year: "$_id.year",
+          month: "$_id.month",
+          totalBookings: 1,
+          totalRevenue: { $round: ["$totalRevenue", 2] },
+          avgBookingValue: { $round: ["$avgBookingValue", 2] },
+          confirmedBookings: 1,
+          completedBookings: 1,
+          cancelledBookings: 1
+        }
+      }
+    ]);
+
+    res.json(analytics);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Server error", error: error.message });
   }
 });
 
