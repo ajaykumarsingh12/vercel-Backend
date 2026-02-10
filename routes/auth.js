@@ -29,7 +29,7 @@ router.post(
     body("password")
       .isLength({ min: 6 })
       .withMessage("Password must be 6+ chars"),
-    body("role").optional().isIn(["user", "hall_owner", "admin"]),
+    body("role").optional().isIn(["user", "hall_owner"]),
   ],
   async (req, res) => {
     try {
@@ -44,6 +44,14 @@ router.post(
 
       const { name, email, password, role, phone } = req.body;
 
+      // 🔒 SECURITY: Block admin registration attempts
+      if (role === "admin") {
+        return res.status(403).json({
+          success: false,
+          message: "Admin accounts cannot be created through registration. Contact system administrator.",
+        });
+      }
+
       const existingUser = await User.findOne({ email });
       if (existingUser) {
         return res
@@ -51,11 +59,14 @@ router.post(
           .json({ success: false, message: "Email already registered" });
       }
 
+      // 🔒 SECURITY: Force role to be either "user" or "hall_owner", never "admin"
+      const userRole = role === "hall_owner" ? "hall_owner" : "user";
+
       const user = new User({
         name,
         email,
         password,
-        role: role || "user",
+        role: userRole,
         phone: phone && typeof phone === "string" ? phone.trim() : undefined,
       });
 
