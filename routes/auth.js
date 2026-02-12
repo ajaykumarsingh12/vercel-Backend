@@ -437,6 +437,8 @@ router.post("/google", async (req, res) => {
     let user = await User.findOne({ email });
 
     if (user) {
+      console.log('🔵 Existing user found:', email, 'Current role:', user.role, 'Requested role:', role);
+      
       // Check if user is blocked
       if (user.isBlocked) {
         return res.status(403).json({
@@ -448,6 +450,7 @@ router.post("/google", async (req, res) => {
       // Update role if explicitly provided and different from current role
       // Only allow switching between user and hall_owner (not admin)
       if (role && (role === "user" || role === "hall_owner") && user.role !== role && user.role !== "admin") {
+        console.log('🔵 Updating role from', user.role, 'to', role);
         user.role = role;
       }
 
@@ -457,9 +460,11 @@ router.post("/google", async (req, res) => {
       }
 
       await user.save();
+      console.log('🔵 User saved with role:', user.role);
     } else {
       // Validate role (only user or hall_owner allowed)
       const userRole = role === "hall_owner" ? "hall_owner" : "user";
+      console.log('🔵 Creating new user with role:', userRole);
 
       // Create new user with Google data
       user = new User({
@@ -472,6 +477,7 @@ router.post("/google", async (req, res) => {
       });
 
       await user.save();
+      console.log('🔵 New user created with role:', user.role);
     }
 
     const token = generateToken(user._id);
