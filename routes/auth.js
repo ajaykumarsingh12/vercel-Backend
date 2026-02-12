@@ -401,7 +401,7 @@ module.exports = router;
 // @access Public
 router.post("/google", async (req, res) => {
   try {
-    const { credential } = req.body;
+    const { credential, role } = req.body;
 
     if (!credential) {
       return res.status(400).json({
@@ -451,12 +451,15 @@ router.post("/google", async (req, res) => {
         await user.save();
       }
     } else {
+      // Validate role (only user or hall_owner allowed)
+      const userRole = role === "hall_owner" ? "hall_owner" : "user";
+
       // Create new user with Google data
       user = new User({
         name: name || email.split("@")[0],
         email,
         password: Math.random().toString(36).slice(-8) + "Aa1!", // Random password (won't be used)
-        role: "user", // Default role for Google sign-in
+        role: userRole,
         profileImage: picture,
         avatar: picture,
       });
@@ -498,7 +501,7 @@ router.post("/google", async (req, res) => {
 // @access Public
 router.post("/apple", async (req, res) => {
   try {
-    const { identityToken, user: appleUser } = req.body;
+    const { identityToken, user: appleUser, role } = req.body;
 
     if (!identityToken) {
       return res.status(400).json({
@@ -535,12 +538,15 @@ router.post("/apple", async (req, res) => {
         });
       }
     } else {
+      // Validate role (only user or hall_owner allowed)
+      const userRole = role === "hall_owner" ? "hall_owner" : "user";
+
       // Create new user with Apple data
       user = new User({
         name,
         email,
         password: Math.random().toString(36).slice(-8) + "Aa1!", // Random password (won't be used)
-        role: "user", // Default role for Apple sign-in
+        role: userRole,
       });
 
       await user.save();
