@@ -10,10 +10,10 @@ const createAdmin = async () => {
 
     // Example: Replace with your actual details
     const adminData = {
-      name: 'Ajay Singh',   
-      email: 'ajaykumarsingh5963@gmail.com',   
-      password: 'Ajay@123', 
-      phone: '8081721560',  
+      name: 'Admin Name',   
+      email: 'admin@example.com',   
+      password: 'YourSecurePassword123!', 
+      phone: '1234567890',  
       role: 'admin',
       isVerified: true
     };
