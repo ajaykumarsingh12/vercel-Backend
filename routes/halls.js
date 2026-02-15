@@ -96,14 +96,46 @@ router.get(
   authorize("hall_owner", "admin"),
   async (req, res) => {
     try {
-      // ✅ OPTIMIZED: Direct database query instead of fetching all and filtering
-      const userHalls = await Hall.find({ owner: req.user._id })
+      console.log('🔍 [MY-HALLS] Request from user:', {
+        userId: req.user._id.toString(),
+        userEmail: req.user.email,
+        userRole: req.user.role
+      });
+
+      // Convert to ObjectId for strict comparison
+      const ownerId = new mongoose.Types.ObjectId(req.user._id);
+      
+      // ✅ STRICT FILTER: Only fetch halls where owner exactly matches current user
+      const userHalls = await Hall.find({ 
+        owner: ownerId 
+      })
         .populate("owner", "name email _id")
         .sort({ createdAt: -1 })
         .lean(); // Use lean() for faster read-only queries
 
-      res.json(userHalls);
+      console.log('✅ [MY-HALLS] Found halls:', {
+        count: userHalls.length,
+        hallIds: userHalls.map(h => h._id.toString()),
+        hallNames: userHalls.map(h => h.name)
+      });
+
+      // Double-check: Filter again on backend to ensure no leakage
+      const filteredHalls = userHalls.filter(hall => {
+        const hallOwnerId = hall.owner?._id?.toString() || hall.owner?.toString();
+        const currentUserId = req.user._id.toString();
+        return hallOwnerId === currentUserId;
+      });
+
+      if (filteredHalls.length !== userHalls.length) {
+        console.warn('⚠️ [MY-HALLS] Security filter removed unauthorized halls:', {
+          before: userHalls.length,
+          after: filteredHalls.length
+        });
+      }
+
+      res.json(filteredHalls);
     } catch (error) {
+      console.error('❌ [MY-HALLS] Error:', error);
       res.status(500).json({ message: "Server error", error: error.message });
     }
   }
@@ -140,18 +172,22 @@ router.get("/debug-user", auth, async (req, res) => {
 });
 
 // @route GET /api/halls/all-my-halls
-// @desc Get ALL halls for hall owner (temporary debug endpoint)
+// @desc Get ALL halls for hall owner (REMOVED - Security Issue)
 // @access Private
 router.get("/all-my-halls", auth, async (req, res) => {
   try {
-    // Just return ALL halls for now to debug
-    const allHalls = await Hall.find()
+    // SECURITY FIX: This endpoint was returning ALL halls to everyone
+    // Now it returns only the current user's halls (same as /my-halls)
+    console.log('⚠️ [ALL-MY-HALLS] Deprecated endpoint called, redirecting to my-halls logic');
+    
+    const ownerId = new mongoose.Types.ObjectId(req.user._id);
+    const userHalls = await Hall.find({ owner: ownerId })
       .populate("owner", "name email _id")
       .sort({ createdAt: -1 });
 
-    res.json(allHalls);
+    res.json(userHalls);
   } catch (error) {
-        res.status(500).json({ message: "Server error", error: error.message, stack: error.stack });
+    res.status(500).json({ message: "Server error", error: error.message, stack: error.stack });
   }
 });
 
