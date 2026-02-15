@@ -2,8 +2,26 @@ const express = require("express");
 const { body, validationResult } = require("express-validator");
 const Booking = require("../models/Booking");
 const { auth } = require("../middleware/auth");
+const Razorpay = require("razorpay");
+const crypto = require("crypto");
 
 const router = express.Router();
+
+// Initialize Razorpay instance
+// Set PAYMENT_MODE=simulated in .env to use simulated payments (for testing)
+// Set PAYMENT_MODE=razorpay in .env to use real Razorpay payments (for production)
+const PAYMENT_MODE = process.env.PAYMENT_MODE || "simulated";
+
+let razorpayInstance = null;
+if (PAYMENT_MODE === "razorpay" && process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET) {
+  razorpayInstance = new Razorpay({
+    key_id: process.env.RAZORPAY_KEY_ID,
+    key_secret: process.env.RAZORPAY_KEY_SECRET,
+  });
+  console.log("✅ Razorpay initialized - Real payment mode");
+} else {
+  console.log("⚠️  Simulated payment mode - Set PAYMENT_MODE=razorpay and add Razorpay keys for production");
+}
 
 // @route POST /api/payments/initiate
 // @desc Initiate payment for a booking
@@ -47,35 +65,83 @@ router.post(
         return res.status(400).json({ message: "Payment already completed" });
       }
 
-      // Create payment order (mock implementation)
-      const paymentOrder = {
-        id: `order_${Date.now()}`,
-        amount: booking.totalAmount * 100, // Amount in paisa
-        currency: "INR",
-        booking: bookingId,
-        user: req.user._id,
-        paymentMethod,
-        status: "created",
-        createdAt: new Date(),
-      };
+      let paymentOrder;
 
-      // In a real implementation, you would integrate with payment gateway here
-      // For now, we'll simulate the payment order creation
+      if (PAYMENT_MODE === "razorpay" && razorpayInstance) {
+        // REAL RAZORPAY PAYMENT
+        try {
+          const razorpayOrder = await razorpayInstance.orders.create({
+            amount: Math.round(booking.totalAmount * 100), // Amount in paisa
+            currency: "INR",
+            receipt: `booking_${booking._id}`,
+            notes: {
+              bookingId: booking._id.toString(),
+              hallName: booking.hall.name,
+              userId: req.user._id.toString(),
+              userName: req.user.name,
+            },
+          });
 
-      res.json({
-        orderId: paymentOrder.id,
-        amount: paymentOrder.amount,
-        currency: paymentOrder.currency,
-        booking: {
-          id: booking._id,
-          hallName: booking.hall.name,
-          date: booking.bookingDate,
-          time: `${booking.startTime} - ${booking.endTime}`,
-        },
-        paymentMethod,
-        // In real implementation, this would include gateway-specific data
-        key: process.env.RAZORPAY_KEY_ID || "rzp_test_key", // For Razorpay or similar
-      });
+          paymentOrder = {
+            id: razorpayOrder.id,
+            amount: razorpayOrder.amount,
+            currency: razorpayOrder.currency,
+            booking: bookingId,
+            user: req.user._id,
+            paymentMethod,
+            status: razorpayOrder.status,
+            createdAt: new Date(),
+          };
+
+          res.json({
+            orderId: razorpayOrder.id,
+            amount: razorpayOrder.amount,
+            currency: razorpayOrder.currency,
+            booking: {
+              id: booking._id,
+              hallName: booking.hall.name,
+              date: booking.bookingDate,
+              time: `${booking.startTime} - ${booking.endTime}`,
+            },
+            paymentMethod,
+            key: process.env.RAZORPAY_KEY_ID,
+            mode: "razorpay",
+          });
+        } catch (razorpayError) {
+          console.error("Razorpay order creation failed:", razorpayError);
+          return res.status(500).json({ 
+            message: "Failed to create payment order",
+            error: razorpayError.message 
+          });
+        }
+      } else {
+        // SIMULATED PAYMENT (for testing/development)
+        paymentOrder = {
+          id: `order_${Date.now()}`,
+          amount: Math.round(booking.totalAmount * 100), // Amount in paisa
+          currency: "INR",
+          booking: bookingId,
+          user: req.user._id,
+          paymentMethod,
+          status: "created",
+          createdAt: new Date(),
+        };
+
+        res.json({
+          orderId: paymentOrder.id,
+          amount: paymentOrder.amount,
+          currency: paymentOrder.currency,
+          booking: {
+            id: booking._id,
+            hallName: booking.hall.name,
+            date: booking.bookingDate,
+            time: `${booking.startTime} - ${booking.endTime}`,
+          },
+          paymentMethod,
+          key: "rzp_test_simulated",
+          mode: "simulated",
+        });
+      }
     } catch (error) {
       console.error(error);
       res.status(500).json({ message: "Server error" });
@@ -102,7 +168,7 @@ router.post(
         return res.status(400).json({ errors: errors.array() });
       }
 
-      const { bookingId, paymentId, orderId } = req.body;
+      const { bookingId, paymentId, orderId, signature } = req.body;
 
       // Find booking
       const booking = await Booking.findById(bookingId);
@@ -117,20 +183,100 @@ router.post(
           .json({ message: "Not authorized for this booking" });
       }
 
-      // In a real implementation, you would verify the payment with the gateway
-      // For now, we'll simulate payment verification
+      let paymentVerified = false;
 
-      // Update booking payment status
+      if (PAYMENT_MODE === "razorpay" && razorpayInstance && signature) {
+        // REAL RAZORPAY PAYMENT VERIFICATION
+        try {
+          // Verify signature
+          const generatedSignature = crypto
+            .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
+            .update(`${orderId}|${paymentId}`)
+            .digest("hex");
+
+          if (generatedSignature === signature) {
+            paymentVerified = true;
+            console.log("✅ Razorpay payment verified successfully");
+          } else {
+            console.error("❌ Razorpay signature verification failed");
+            return res.status(400).json({ 
+              message: "Payment verification failed - Invalid signature" 
+            });
+          }
+        } catch (verifyError) {
+          console.error("Razorpay verification error:", verifyError);
+          return res.status(500).json({ 
+            message: "Payment verification failed",
+            error: verifyError.message 
+          });
+        }
+      } else {
+        // SIMULATED PAYMENT VERIFICATION (for testing/development)
+        paymentVerified = true;
+        console.log("⚠️  Simulated payment verified (testing mode)");
+      }
+
+      if (!paymentVerified) {
+        return res.status(400).json({ message: "Payment verification failed" });
+      }
+
+      // Update booking payment status and mark as completed immediately
       booking.paymentStatus = "paid";
-      booking.status = "confirmed"; // Auto-confirm booking on successful payment
+      booking.status = "completed"; // Automatically set to completed
+      booking.razorpayPaymentId = paymentId;
+      booking.razorpayOrderId = orderId;
       await booking.save();
 
-      await booking.populate("user", "name email");
-      await booking.populate("hall", "name location pricePerHour");
+      // Automatically create revenue record when payment is successful
+      try {
+        const OwnerRevenue = require("../models/OwnerRevenue");
+        
+        // Check if revenue record already exists for this booking
+        const existingRevenue = await OwnerRevenue.findOne({ booking: booking._id });
+        
+        if (!existingRevenue) {
+          // Calculate commission (90% to hall owner, 10% platform fee)
+          const totalAmount = Math.abs(booking.totalAmount);
+          const hallOwnerCommission = Math.round(totalAmount * 0.9);
+          const platformFee = Math.round(totalAmount * 0.1);
+
+          // Create revenue record
+          const revenueRecord = new OwnerRevenue({
+            booking: booking._id,
+            hall: booking.hall,
+            hallOwner: booking.hall.owner || booking.hall,
+            totalAmount: totalAmount,
+            hallOwnerCommission: hallOwnerCommission,
+            platformFee: platformFee,
+            status: "completed",
+            transactionId: `TXN_${booking._id}_${Date.now()}`,
+            paymentDate: new Date(),
+            settlementStatus: "pending",
+          });
+
+          await revenueRecord.save();
+          console.log(`✅ Revenue record created automatically: ₹${hallOwnerCommission} for booking ${booking._id}`);
+        }
+      } catch (revenueError) {
+        console.error("Error creating revenue record:", revenueError);
+        // Don't fail the payment if revenue creation fails
+        // Revenue can be created manually later if needed
+      }
+
+      // Populate booking details
+      await booking.populate("user", "name email phone");
+      await booking.populate({
+        path: "hall",
+        select: "name location pricePerHour owner",
+        populate: {
+          path: "owner",
+          select: "name email phone"
+        }
+      });
 
       res.json({
         success: true,
-        message: "Payment verified successfully",
+        message: "Payment verified successfully. Booking confirmed.",
         booking: booking,
         payment: {
           id: paymentId,

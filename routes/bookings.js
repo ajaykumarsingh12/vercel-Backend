@@ -69,11 +69,11 @@ router.get("/availability/:hallId", async (req, res) => {
 
     const bookings = await Booking.find(filter)
       .select("bookingDate startTime endTime status")
-      .lean(); // Use lean() for read-only queries
+      .lean();
 
     res.json(bookings);
   } catch (error) {
-      console.error(error);
+    console.error(error);
     res.status(500).json({ message: "Server error", error: error.message });
   }
 });
@@ -144,8 +144,7 @@ router.post(
           .json({ message: "Admins and Hall owners cannot book halls" });
       }
 
-      const { hall, bookingDate, startTime, endTime, specialRequests } =
-        req.body;
+      const { hall, bookingDate, startTime, endTime, specialRequests } = req.body;
 
       // Optimized: Run hall check and conflict check in parallel
       const [hallData, conflictingBooking] = await Promise.all([
@@ -179,17 +178,13 @@ router.post(
       }
 
       // Calculate total hours and amount
-      // Parse time strings
       const [startHour, startMin] = startTime.split(':').map(Number);
       const [endHour, endMin] = endTime.split(':').map(Number);
-
-      // Convert to minutes from midnight
       const startMinutes = startHour * 60 + startMin;
       let endMinutes = endHour * 60 + endMin;
 
-      // Handle overnight bookings (end time is next day)
       if (endMinutes <= startMinutes) {
-        endMinutes += 24 * 60; // Add 24 hours
+        endMinutes += 24 * 60;
       }
 
       const diffMinutes = endMinutes - startMinutes;
@@ -209,10 +204,8 @@ router.post(
 
       await booking.save();
 
-      // Update corresponding availability slot in HallAlloted collection (async, non-blocking)
+      // Update corresponding availability slot in HallAlloted collection
       const HallAlloted = require("../models/HallAlloted");
-
-      // Find the matching availability slot
       const matchingSlot = await HallAlloted.findOne({
         hall: hall,
         allotmentDate: new Date(bookingDate),
@@ -223,7 +216,6 @@ router.post(
       });
 
       if (matchingSlot) {
-        // Update the slot to mark it as booked
         matchingSlot.status = "confirmed";
         matchingSlot.user = req.user._id;
         matchingSlot.booking = booking._id;
@@ -231,7 +223,7 @@ router.post(
         matchingSlot.platformFee = totalAmount * 0.05;
         matchingSlot.hallOwnerCommission = totalAmount * 0.9;
         matchingSlot.paymentStatus = "pending";
-        matchingSlot.isAvailabilitySlot = false; // No longer an availability slot
+        matchingSlot.isAvailabilitySlot = false;
         await matchingSlot.save();
       }
 

@@ -618,3 +618,134 @@ router.post("/apple", async (req, res) => {
     });
   }
 });
+
+// @route POST /api/auth/facebook
+// @desc Facebook OAuth login
+// @access Public
+router.post("/facebook", async (req, res) => {
+  try {
+    const { accessToken, role, sessionId } = req.body;
+
+    if (!accessToken) {
+      return res.status(400).json({
+        success: false,
+        message: "Facebook access token is required",
+      });
+    }
+
+    // If sessionId provided, retrieve role from database
+    let selectedRole = role;
+    if (sessionId) {
+      try {
+        const OnlineUser = require("../models/OnlineUser");
+        const onlineUser = await OnlineUser.findOne({ sessionId });
+        if (onlineUser) {
+          selectedRole = onlineUser.selectedRole;
+          console.log('🔵 Retrieved role from session:', selectedRole);
+        }
+      } catch (error) {
+        console.error('Failed to retrieve session:', error);
+      }
+    }
+
+    console.log('🔵 Final selected role:', selectedRole);
+
+    // Verify Facebook token and get user data
+    const fetch = require("node-fetch");
+    const response = await fetch(
+      `https://graph.facebook.com/me?fields=id,name,email,picture&access_token=${accessToken}`
+    );
+    const facebookUser = await response.json();
+
+    if (facebookUser.error) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid Facebook token",
+      });
+    }
+
+    const { email, name, picture } = facebookUser;
+
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: "Email not provided by Facebook. Please grant email permission.",
+      });
+    }
+
+    // Check if user exists
+    let user = await User.findOne({ email });
+
+    if (user) {
+      console.log('🔵 Existing user found:', email, 'Current role:', user.role, 'Requested role:', selectedRole);
+
+      // Check if user is blocked
+      if (user.isBlocked) {
+        return res.status(403).json({
+          message: "Your account has been blocked. Please contact support for assistance.",
+          isBlocked: true,
+        });
+      }
+
+      // Update role if explicitly provided and different from current role
+      // Only allow switching between user and hall_owner (not admin)
+      if (selectedRole && (selectedRole === "user" || selectedRole === "hall_owner") && user.role !== selectedRole && user.role !== "admin") {
+        console.log('🔵 Updating role from', user.role, 'to', selectedRole);
+        user.role = selectedRole;
+      }
+
+      // Update profile image if not set
+      if (!user.profileImage && picture?.data?.url) {
+        user.profileImage = picture.data.url;
+      }
+
+      await user.save();
+      console.log('🔵 User saved with role:', user.role);
+    } else {
+      // Validate role (only user or hall_owner allowed)
+      const userRole = selectedRole === "hall_owner" ? "hall_owner" : "user";
+      console.log('🔵 Creating new user with role:', userRole);
+
+      // Create new user with Facebook data
+      user = new User({
+        name: name || email.split("@")[0],
+        email,
+        password: Math.random().toString(36).slice(-8) + "Aa1!", // Random password (won't be used)
+        role: userRole,
+        profileImage: picture?.data?.url,
+        avatar: picture?.data?.url,
+      });
+
+      await user.save();
+      console.log('🔵 New user created with role:', user.role);
+    }
+
+    const token = generateToken(user._id);
+
+    res.json({
+      success: true,
+      token,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        phone: user.phone,
+        address: user.address,
+        businessName: user.businessName,
+        department: user.department,
+        profileImage: user.profileImage,
+        bio: user.bio,
+        dateOfBirth: user.dateOfBirth,
+        avatar: user.avatar,
+      },
+    });
+  } catch (error) {
+    console.error("Facebook login error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Facebook login failed. Please try again.",
+    });
+  }
+});
+
