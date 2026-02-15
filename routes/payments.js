@@ -220,31 +220,65 @@ router.post(
         return res.status(400).json({ message: "Payment verification failed" });
       }
 
+      console.log('\n' + '='.repeat(60));
+      console.log('💰 PAYMENT VERIFICATION SUCCESSFUL');
+      console.log('='.repeat(60));
+      console.log(`Booking ID: ${booking._id}`);
+      console.log(`Amount: ₹${booking.totalAmount}`);
+      console.log(`Payment ID: ${paymentId}`);
+      console.log(`Order ID: ${orderId}`);
+      console.log('='.repeat(60) + '\n');
+
       // Update booking payment status and mark as completed immediately
       booking.paymentStatus = "paid";
       booking.status = "completed"; // Automatically set to completed
       booking.razorpayPaymentId = paymentId;
       booking.razorpayOrderId = orderId;
+      
+      // Populate hall details before saving to get owner info
+      await booking.populate('hall');
+      
+      console.log('📋 BOOKING DETAILS:');
+      console.log(`   Hall ID: ${booking.hall?._id}`);
+      console.log(`   Hall Name: ${booking.hall?.name}`);
+      console.log(`   Hall Owner: ${booking.hall?.owner}`);
+      console.log('');
+      
       await booking.save();
 
       // Automatically create revenue record when payment is successful
+      console.log('💵 CREATING REVENUE RECORD...');
       try {
         const OwnerRevenue = require("../models/OwnerRevenue");
         
         // Check if revenue record already exists for this booking
         const existingRevenue = await OwnerRevenue.findOne({ booking: booking._id });
         
-        if (!existingRevenue) {
+        if (existingRevenue) {
+          console.log(`⚠️  Revenue record already exists for booking ${booking._id}`);
+          console.log(`   Revenue ID: ${existingRevenue._id}`);
+          console.log(`   Amount: ₹${existingRevenue.hallOwnerCommission}`);
+        } else {
           // Calculate commission (90% to hall owner, 10% platform fee)
           const totalAmount = Math.abs(booking.totalAmount);
           const hallOwnerCommission = Math.round(totalAmount * 0.9);
           const platformFee = Math.round(totalAmount * 0.1);
 
+          // Get hall owner ID
+          const hallOwnerId = booking.hall.owner || booking.hall._id;
+
+          console.log('   Calculations:');
+          console.log(`   Total Amount: ₹${totalAmount}`);
+          console.log(`   Hall Owner (90%): ₹${hallOwnerCommission}`);
+          console.log(`   Platform Fee (10%): ₹${platformFee}`);
+          console.log(`   Owner ID: ${hallOwnerId}`);
+          console.log('');
+
           // Create revenue record
           const revenueRecord = new OwnerRevenue({
             booking: booking._id,
-            hall: booking.hall,
-            hallOwner: booking.hall.owner || booking.hall,
+            hall: booking.hall._id,
+            hallOwner: hallOwnerId,
             totalAmount: totalAmount,
             hallOwnerCommission: hallOwnerCommission,
             platformFee: platformFee,
@@ -255,10 +289,25 @@ router.post(
           });
 
           await revenueRecord.save();
-          console.log(`✅ Revenue record created automatically: ₹${hallOwnerCommission} for booking ${booking._id}`);
+          
+          console.log('✅ REVENUE RECORD CREATED SUCCESSFULLY!');
+          console.log(`   Revenue ID: ${revenueRecord._id}`);
+          console.log(`   Transaction ID: ${revenueRecord.transactionId}`);
+          console.log(`   Hall Owner Commission: ₹${hallOwnerCommission}`);
+          console.log(`   Platform Fee: ₹${platformFee}`);
+          console.log('='.repeat(60) + '\n');
         }
       } catch (revenueError) {
-        console.error("Error creating revenue record:", revenueError);
+        console.error('\n' + '='.repeat(60));
+        console.error('❌ ERROR CREATING REVENUE RECORD');
+        console.error('='.repeat(60));
+        console.error('Error:', revenueError.message);
+        console.error('Stack:', revenueError.stack);
+        console.error('Booking ID:', booking._id);
+        console.error('Hall ID:', booking.hall?._id);
+        console.error('Hall Name:', booking.hall?.name);
+        console.error('Owner ID:', booking.hall?.owner);
+        console.error('='.repeat(60) + '\n');
         // Don't fail the payment if revenue creation fails
         // Revenue can be created manually later if needed
       }
