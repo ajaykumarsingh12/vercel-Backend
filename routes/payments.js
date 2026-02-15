@@ -1,6 +1,8 @@
 const express = require("express");
 const { body, validationResult } = require("express-validator");
 const Booking = require("../models/Booking");
+const Hall = require("../models/Hall");
+const User = require("../models/User");
 const { auth } = require("../middleware/auth");
 const Razorpay = require("razorpay");
 const crypto = require("crypto");
@@ -250,6 +252,12 @@ router.post(
       console.log('💵 CREATING REVENUE RECORD...');
       try {
         const OwnerRevenue = require("../models/OwnerRevenue");
+        const User = require("../models/User");
+        
+        // Populate user details if not already populated
+        if (!booking.user.name) {
+          await booking.populate('user', 'name email phone');
+        }
         
         // Check if revenue record already exists for this booking
         const existingRevenue = await OwnerRevenue.findOne({ booking: booking._id });
@@ -274,18 +282,33 @@ router.post(
           console.log(`   Owner ID: ${hallOwnerId}`);
           console.log('');
 
-          // Create revenue record
+          // Create revenue record with all required fields
           const revenueRecord = new OwnerRevenue({
             booking: booking._id,
             hall: booking.hall._id,
             hallOwner: hallOwnerId,
+            hallName: booking.hall.name,
+            customer: booking.user._id,
+            customerName: booking.user.name,
+            customerEmail: booking.user.email,
+            customerPhone: booking.user.phone || 'N/A',
+            date: booking.bookingDate,
+            startTime: booking.startTime,
+            endTime: booking.endTime,
+            duration: booking.totalHours,
             totalAmount: totalAmount,
             hallOwnerCommission: hallOwnerCommission,
             platformFee: platformFee,
             status: "completed",
-            transactionId: `TXN_${booking._id}_${Date.now()}`,
-            paymentDate: new Date(),
-            settlementStatus: "pending",
+            transactionId: paymentId || `TXN_${booking._id}_${Date.now()}`,
+            completedAt: new Date(),
+            hallLocation: {
+              city: booking.hall.location?.city,
+              state: booking.hall.location?.state,
+              address: booking.hall.location?.address
+            },
+            specialRequests: booking.specialRequests,
+            paymentMethod: 'online'
           });
 
           await revenueRecord.save();
@@ -295,6 +318,8 @@ router.post(
           console.log(`   Transaction ID: ${revenueRecord.transactionId}`);
           console.log(`   Hall Owner Commission: ₹${hallOwnerCommission}`);
           console.log(`   Platform Fee: ₹${platformFee}`);
+          console.log(`   Customer: ${booking.user.name}`);
+          console.log(`   Hall: ${booking.hall.name}`);
           console.log('='.repeat(60) + '\n');
         }
       } catch (revenueError) {
@@ -307,6 +332,8 @@ router.post(
         console.error('Hall ID:', booking.hall?._id);
         console.error('Hall Name:', booking.hall?.name);
         console.error('Owner ID:', booking.hall?.owner);
+        console.error('User ID:', booking.user?._id);
+        console.error('User Name:', booking.user?.name);
         console.error('='.repeat(60) + '\n');
         // Don't fail the payment if revenue creation fails
         // Revenue can be created manually later if needed
