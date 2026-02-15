@@ -364,8 +364,8 @@ router.post("/", auth, async (req, res) => {
       startTime,
       endTime,
       totalAmount,
-      hallOwnerCommission: hallOwnerCommission || totalAmount * 0.9,
-      platformFee: platformFee || totalAmount * 0.1,
+      hallOwnerCommission: hallOwnerCommission || totalAmount, // 100% to hall owner
+      platformFee: platformFee || 0, // 0% platform fee
       notes
     });
 

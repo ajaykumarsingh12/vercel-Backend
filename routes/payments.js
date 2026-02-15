@@ -267,10 +267,10 @@ router.post(
           console.log(`   Revenue ID: ${existingRevenue._id}`);
           console.log(`   Amount: ₹${existingRevenue.hallOwnerCommission}`);
         } else {
-          // Calculate commission (90% to hall owner, 10% platform fee)
+          // Calculate commission (100% to hall owner, 0% platform fee)
           const totalAmount = Math.abs(booking.totalAmount);
-          const hallOwnerCommission = Math.round(totalAmount * 0.9);
-          const platformFee = Math.round(totalAmount * 0.1);
+          const hallOwnerCommission = totalAmount; // 100% to hall owner
+          const platformFee = 0; // 0% platform fee
 
           // Get hall owner ID
           const hallOwnerId = booking.hall.owner || booking.hall._id;

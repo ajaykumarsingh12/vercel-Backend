@@ -220,8 +220,8 @@ router.post(
         matchingSlot.user = req.user._id;
         matchingSlot.booking = booking._id;
         matchingSlot.totalAmount = totalAmount;
-        matchingSlot.platformFee = totalAmount * 0.05;
-        matchingSlot.hallOwnerCommission = totalAmount * 0.9;
+        matchingSlot.platformFee = 0; // 0% platform fee
+        matchingSlot.hallOwnerCommission = totalAmount; // 100% to hall owner
         matchingSlot.paymentStatus = "pending";
         matchingSlot.isAvailabilitySlot = false;
         await matchingSlot.save();
@@ -326,8 +326,8 @@ router.put(
               endTime: booking.endTime,
               duration: booking.totalHours,
               totalAmount: booking.totalAmount,
-              hallOwnerCommission: Math.round(booking.totalAmount * 0.9), // 90% to hall owner
-              platformFee: Math.round(booking.totalAmount * 0.1), // 10% platform fee
+              hallOwnerCommission: booking.totalAmount, // 100% to hall owner
+              platformFee: 0, // 0% platform fee
               status: "completed",
               completedAt: new Date(),
               specialRequests: booking.specialRequests,

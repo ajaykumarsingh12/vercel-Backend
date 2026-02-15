@@ -323,9 +323,9 @@ router.post("/", auth, async (req, res) => {
       return res.status(400).json({ message: "Hall is already booked for this time slot" });
     }
 
-    // Calculate platform fee (5% of total amount)
-    const platformFee = totalAmount * 0.05;
-    const hallOwnerCommission = totalAmount * 0.9; // 90% to hall owner
+    // Calculate platform fee (0% of total amount)
+    const platformFee = 0; // 0% platform fee
+    const hallOwnerCommission = totalAmount; // 100% to hall owner
 
     // Create a dummy booking if not provided (for hall owner created slots)
     let bookingId = booking;
