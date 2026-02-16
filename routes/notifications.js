@@ -19,10 +19,10 @@ router.get("/", auth, async (req, res) => {
   }
 });
 
-// @route PUT /api/notifications/mark-read/:id
+// @route PUT /api/notifications/:id/read
 // @desc Mark a notification as read
 // @access Private
-router.put("/mark-read/:id", auth, async (req, res) => {
+router.put("/:id/read", auth, async (req, res) => {
   try {
     const notification = await Notification.findById(req.params.id);
 
@@ -37,9 +37,33 @@ router.put("/mark-read/:id", auth, async (req, res) => {
     notification.isRead = true;
     await notification.save();
 
-    res.json(notification);
+    res.json({ success: true, message: "Notification marked as read", notification });
   } catch (error) {
-      console.error(error);
+    console.error(error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+// @route DELETE /api/notifications/:id
+// @desc Delete a notification
+// @access Private
+router.delete("/:id", auth, async (req, res) => {
+  try {
+    const notification = await Notification.findById(req.params.id);
+
+    if (!notification) {
+      return res.status(404).json({ message: "Notification not found" });
+    }
+
+    if (notification.user.toString() !== req.user._id.toString()) {
+      return res.status(401).json({ message: "Not authorized" });
+    }
+
+    await notification.deleteOne();
+
+    res.json({ success: true, message: "Notification deleted" });
+  } catch (error) {
+    console.error(error);
     res.status(500).json({ message: "Server error" });
   }
 });
@@ -55,7 +79,7 @@ router.put("/mark-all-read", auth, async (req, res) => {
     );
     res.json({ message: "All notifications marked as read" });
   } catch (error) {
-      console.error(error);
+    console.error(error);
     res.status(500).json({ message: "Server error" });
   }
 });

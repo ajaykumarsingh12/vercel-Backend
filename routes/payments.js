@@ -339,6 +339,36 @@ router.post(
         // Revenue can be created manually later if needed
       }
 
+      // Create notification for hall owner
+      console.log('🔔 CREATING NOTIFICATION FOR HALL OWNER...');
+      try {
+        const Notification = require("../models/Notification");
+        
+        // Get hall owner ID
+        const hallOwnerId = booking.hall.owner;
+        
+        if (hallOwnerId) {
+          const notification = new Notification({
+            user: hallOwnerId,
+            message: `New booking confirmed! ${booking.user.name} has successfully paid ₹${booking.totalAmount} for ${booking.hall.name} on ${new Date(booking.bookingDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })} (${booking.startTime} - ${booking.endTime})`,
+            type: "payment",
+            relatedId: booking._id,
+            isRead: false
+          });
+          
+          await notification.save();
+          console.log('✅ Notification sent to hall owner');
+          console.log(`   Owner ID: ${hallOwnerId}`);
+          console.log(`   Notification ID: ${notification._id}`);
+        } else {
+          console.log('⚠️  Hall owner ID not found, notification not sent');
+        }
+      } catch (notificationError) {
+        console.error('❌ Error creating notification:', notificationError.message);
+        // Don't fail the payment if notification creation fails
+      }
+      console.log('');
+
       // Populate booking details
       await booking.populate("user", "name email phone");
       await booking.populate({
