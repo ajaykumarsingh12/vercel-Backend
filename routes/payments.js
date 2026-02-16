@@ -369,6 +369,53 @@ router.post(
       }
       console.log('');
 
+      // Send email notifications
+      console.log('📧 SENDING EMAIL NOTIFICATIONS...');
+      try {
+        const { sendBookingNotificationEmail, sendBookingConfirmationToCustomer } = require('../utils/emailService');
+        const User = require('../models/User');
+        
+        // Get hall owner details
+        const hallOwner = await User.findById(booking.hall.owner);
+        
+        if (hallOwner) {
+          // Send email to hall owner
+          console.log('📧 Sending email to hall owner:', hallOwner.email);
+          const ownerEmailResult = await sendBookingNotificationEmail(
+            hallOwner,
+            booking,
+            booking.user,
+            booking.hall
+          );
+          
+          if (ownerEmailResult.success) {
+            console.log('✅ Email sent to hall owner successfully');
+          } else {
+            console.log('⚠️  Email to hall owner failed:', ownerEmailResult.message || ownerEmailResult.error);
+          }
+          
+          // Send confirmation email to customer
+          console.log('📧 Sending confirmation email to customer:', booking.user.email);
+          const customerEmailResult = await sendBookingConfirmationToCustomer(
+            booking.user,
+            booking,
+            booking.hall
+          );
+          
+          if (customerEmailResult.success) {
+            console.log('✅ Confirmation email sent to customer successfully');
+          } else {
+            console.log('⚠️  Confirmation email to customer failed:', customerEmailResult.message || customerEmailResult.error);
+          }
+        } else {
+          console.log('⚠️  Hall owner not found, emails not sent');
+        }
+      } catch (emailError) {
+        console.error('❌ Error sending emails:', emailError.message);
+        // Don't fail the payment if email sending fails
+      }
+      console.log('');
+
       // Populate booking details
       await booking.populate("user", "name email phone");
       await booking.populate({
