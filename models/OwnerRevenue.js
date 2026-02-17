@@ -126,12 +126,15 @@ ownerRevenueSchema.statics.getTotalRevenue = async function(hallOwnerId, startDa
     {
       $group: {
         _id: null,
-        totalRevenue: { $sum: "$totalAmount" }, // Use totalAmount instead of hallOwnerCommission
+        totalRevenue: { $sum: "$hallOwnerCommission" }, // Use hallOwnerCommission (actual earnings)
         totalBookings: { $sum: 1 },
         totalPlatformFees: { $sum: "$platformFee" }
       }
     }
   ]);
+
+  console.log('getTotalRevenue - Match:', match);
+  console.log('getTotalRevenue - Result:', result[0]);
 
   return result[0] || { totalRevenue: 0, totalBookings: 0, totalPlatformFees: 0 };
 };
@@ -156,7 +159,7 @@ ownerRevenueSchema.statics.getRevenueByHall = async function(hallOwnerId, startD
       $group: {
         _id: "$hall",
         hallName: { $first: "$hallName" },
-        totalRevenue: { $sum: "$totalAmount" }, // Use totalAmount instead of hallOwnerCommission
+        totalRevenue: { $sum: "$hallOwnerCommission" }, // Use hallOwnerCommission (actual earnings)
         totalBookings: { $sum: 1 }
       }
     },
@@ -186,7 +189,7 @@ ownerRevenueSchema.statics.getMonthlyStats = async function(hallOwnerId, year) {
           year: { $year: "$date" },
           month: { $month: "$date" }
         },
-        totalRevenue: { $sum: "$totalAmount" }, // Use totalAmount instead of hallOwnerCommission
+        totalRevenue: { $sum: "$hallOwnerCommission" }, // Use hallOwnerCommission (actual earnings)
         totalBookings: { $sum: 1 }
       }
     },

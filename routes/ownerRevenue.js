@@ -101,7 +101,7 @@ router.get("/debug/:bookingId", auth, async (req, res) => {
 });
 
 // @route GET /api/owner-revenue/latest
-// @desc Get latest revenue records for testing
+// @desc Get all revenue records for earnings report
 // @access Private (Hall Owner)
 router.get("/latest", auth, async (req, res) => {
   try {
@@ -109,25 +109,69 @@ router.get("/latest", auth, async (req, res) => {
       return res.status(403).json({ message: "Access denied. Hall owners only." });
     }
 
-    const filter = {};
+    const filter = { status: "completed" };
     if (req.user.role === "hall_owner") {
       filter.hallOwner = req.user._id;
     }
 
-    const latestRevenues = await OwnerRevenue.find(filter)
-      .populate("hall", "name location")
-      .populate("customer", "name email phone")
-      .populate("booking", "bookingDate specialRequests")
+    console.log('🔍 /latest - Filter:', filter);
+    
+    // Get ALL revenue records
+    const allRevenues = await OwnerRevenue.find(filter)
+      .select('hallOwner hall hallName customer customerPhone booking date startTime endTime totalAmount hallOwnerCommission platformFee status')
       .sort({ createdAt: -1 })
-      .limit(5);
+      .lean()
+      .exec();
 
+    const total = allRevenues.reduce((sum, r) => sum + (r.hallOwnerCommission || 0), 0);
+    
+    console.log('✅ Found:', allRevenues.length, 'records');
+    console.log('💰 Total:', total);
+    console.log('📦 Response size:', JSON.stringify(allRevenues).length, 'bytes');
+
+    const response = {
+      success: true,
+      message: "All revenue records",
+      count: allRevenues.length,
+      total: total,
+      revenues: allRevenues
+    };
+
+    console.log('📤 Sending response with', response.revenues.length, 'revenues');
+    
+    res.status(200).json(response);
+  } catch (error) {
+    console.error('❌ Error:', error);
+    res.status(500).json({ success: false, message: "Server error", error: error.message });
+  }
+});
+
+// @route GET /api/owner-revenue/all-records
+// @desc Get ALL revenue records without any filtering (for debugging)
+// @access Private (Hall Owner)
+router.get("/all-records", auth, async (req, res) => {
+  try {
+    if (req.user.role !== "hall_owner" && req.user.role !== "admin") {
+      return res.status(403).json({ message: "Access denied" });
+    }
+
+    const hallOwnerId = req.user._id;
+    
+    // Get absolutely ALL records for this hall owner
+    const records = await OwnerRevenue.find({ hallOwner: hallOwnerId }).lean();
+    
+    const total = records.reduce((sum, r) => sum + (r.hallOwnerCommission || 0), 0);
+    
+    console.log(`📊 ALL RECORDS for owner ${hallOwnerId}:`, records.length);
+    console.log(`💰 TOTAL: ₹${total}`);
+    
     res.json({
-      message: "Latest revenue records",
-      count: latestRevenues.length,
-      revenues: latestRevenues
+      count: records.length,
+      total: total,
+      revenues: records
     });
   } catch (error) {
-      console.error(error);
+    console.error('Error:', error);
     res.status(500).json({ message: "Server error" });
   }
 });
