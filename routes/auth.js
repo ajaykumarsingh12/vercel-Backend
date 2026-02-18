@@ -624,9 +624,11 @@ router.post("/apple", async (req, res) => {
 // @access Public
 router.post("/facebook", async (req, res) => {
   try {
+    console.log('🔵 Backend received request body:', req.body);
     const { accessToken, role, sessionId } = req.body;
 
     if (!accessToken) {
+      console.log('🔴 Missing accessToken');
       return res.status(400).json({
         success: false,
         message: "Facebook access token is required",
@@ -652,12 +654,15 @@ router.post("/facebook", async (req, res) => {
 
     // Verify Facebook token and get user data
     const fetch = require("node-fetch");
+    console.log('🔵 Verifying Facebook token...');
     const response = await fetch(
       `https://graph.facebook.com/me?fields=id,name,email,picture&access_token=${accessToken}`
     );
     const facebookUser = await response.json();
+    console.log('🔵 Facebook API response:', facebookUser);
 
     if (facebookUser.error) {
+      console.log('🔴 Facebook API error:', facebookUser.error);
       return res.status(401).json({
         success: false,
         message: "Invalid Facebook token",
