@@ -154,7 +154,7 @@ if (process.env.VERCEL !== '1' && require.main === module) {
     app.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
       console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
-      console.log(`Database: ${mongoose.connection.readyState === 1 ? 'Connected' : 'Disconnected'}`);
+      console.log(`Database: ${mongoose.connection.readyState === 1 ? 'Connected...' : 'Disconnected...'}`);
     });
   }).catch(error => {
     console.error('Failed to start server:', error);
