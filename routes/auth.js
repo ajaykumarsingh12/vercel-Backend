@@ -669,24 +669,24 @@ router.post("/facebook", async (req, res) => {
       });
     }
 
-    const { email, name, picture } = facebookUser;
-    console.log('🔵 Extracted data - Email:', email, 'Name:', name, 'Picture:', picture);
+    const { email, name, picture, id } = facebookUser;
+    console.log('🔵 Extracted data - Email:', email, 'Name:', name, 'Picture:', picture, 'Facebook ID:', id);
+    console.log('🔵 Full Facebook user object:', JSON.stringify(facebookUser));
 
+    // If email is not provided, use Facebook ID as email
+    let userEmail = email;
     if (!email) {
-      console.log('🔴 Email is missing from Facebook response!');
-      return res.status(400).json({
-        success: false,
-        message: "Email not provided by Facebook. Please grant email permission.",
-      });
+      console.log('🟡 Email not provided by Facebook, using Facebook ID as identifier');
+      userEmail = `facebook_${id}@facebook-user.com`;
     }
     
-    console.log('🔵 Email verified, proceeding with user lookup...');
+    console.log('🔵 Using email:', userEmail, 'proceeding with user lookup...');
 
     // Check if user exists
-    let user = await User.findOne({ email });
+    let user = await User.findOne({ email: userEmail });
 
     if (user) {
-      console.log('🔵 Existing user found:', email, 'Current role:', user.role, 'Requested role:', selectedRole);
+      console.log('🔵 Existing user found:', userEmail, 'Current role:', user.role, 'Requested role:', selectedRole);
 
       // Check if user is blocked
       if (user.isBlocked) {
@@ -717,8 +717,8 @@ router.post("/facebook", async (req, res) => {
 
       // Create new user with Facebook data
       user = new User({
-        name: name || email.split("@")[0],
-        email,
+        name: name || userEmail.split("@")[0],
+        email: userEmail,
         password: Math.random().toString(36).slice(-8) + "Aa1!", // Random password (won't be used)
         role: userRole,
         profileImage: picture?.data?.url,
