@@ -670,13 +670,17 @@ router.post("/facebook", async (req, res) => {
     }
 
     const { email, name, picture } = facebookUser;
+    console.log('🔵 Extracted data - Email:', email, 'Name:', name, 'Picture:', picture);
 
     if (!email) {
+      console.log('🔴 Email is missing from Facebook response!');
       return res.status(400).json({
         success: false,
         message: "Email not provided by Facebook. Please grant email permission.",
       });
     }
+    
+    console.log('🔵 Email verified, proceeding with user lookup...');
 
     // Check if user exists
     let user = await User.findOne({ email });
